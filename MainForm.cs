@@ -8,12 +8,14 @@ internal sealed class MainForm : Form
     private readonly MonitorService monitor = new(AppContext.BaseDirectory);
     private readonly CancellationTokenSource cancellation = new();
     private readonly Label status = new() { AutoSize = true, MaximumSize = new(610, 0), Text = "Loading reference images…" };
-    private readonly Label layouts = new() { AutoSize = true, Text = "Both supplied layouts are monitored together." };
+    private readonly Label layouts = new() { AutoSize = true, Text = "All supplied layouts are monitored together." };
     private readonly Label lastClick = new() { AutoSize = true, Text = "No approval clicked yet." };
     private readonly NumericUpDown interval = new() { Minimum = .2m, Maximum = 3600, DecimalPlaces = 1, Increment = .5m, Value = 2, Width = 95 };
     private readonly CheckBox startup = new() { AutoSize = true, Text = "Start with Windows" };
     private readonly CheckBox minimize = new() { AutoSize = true, Checked = true, Text = "Minimize / close to system tray" };
     private readonly Button pause = new() { Text = "Pause monitoring", AutoSize = true };
+    private readonly ListBox activityLog = new() { Dock = DockStyle.Fill, HorizontalScrollbar = true,
+        IntegralHeight = false, Font = new Font("Consolas", 9), Name = "activityLog" };
     private readonly ToolStripMenuItem startupMenu = new("Start with Windows") { CheckOnClick = true };
     private readonly ToolStripMenuItem pauseMenu = new("Pause monitoring");
     private readonly ToolStripMenuItem minimizeMenu = new("Minimize to tray") { CheckOnClick = true, Checked = true };
@@ -31,8 +33,8 @@ internal sealed class MainForm : Form
         if (preview) status.Text = "Preview — monitoring is not running";
         Text = "Codex Auto Approve";
         using (var iconStream = typeof(MainForm).Assembly.GetManifestResourceStream("CodexAutoApprove.assets.app.ico")!) Icon = new Icon(iconStream);
-        AutoScaleMode = AutoScaleMode.Dpi; ClientSize = new(660, 410);
-        MinimumSize = new(600, 420); StartPosition = FormStartPosition.CenterScreen;
+        AutoScaleMode = AutoScaleMode.Dpi; ClientSize = new(780, 690);
+        MinimumSize = new(700, 620); StartPosition = FormStartPosition.CenterScreen;
         Font = new Font("Segoe UI", 10);
         var menu = new MenuStrip();
         var settingsMenu = new ToolStripMenuItem("Settings");
@@ -52,7 +54,14 @@ internal sealed class MainForm : Form
         var buttons = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new(0, 10, 0, 12) };
         var save = new Button { Text = "Save settings", AutoSize = true };
         buttons.Controls.Add(save); buttons.Controls.Add(pause); body.Controls.Add(buttons); body.Controls.Add(lastClick);
-        Controls.Add(body); Controls.Add(menu);
+        var content = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2 };
+        content.ColumnStyles.Add(new(SizeType.Percent, 100));
+        content.RowStyles.Add(new(SizeType.Absolute, 390));
+        content.RowStyles.Add(new(SizeType.Percent, 100));
+        var logGroup = new GroupBox { Dock = DockStyle.Fill, Text = "Activity log — latest 100 entries", Padding = new(8), Margin = new(20, 0, 20, 16) };
+        logGroup.Controls.Add(activityLog);
+        content.Controls.Add(body, 0, 0); content.Controls.Add(logGroup, 0, 1);
+        Controls.Add(content); Controls.Add(menu);
         var trayMenu = new ContextMenuStrip();
         trayMenu.Items.Add("Open", null, (_, _) => ShowWindow()); trayMenu.Items.Add(pauseMenu);
         trayMenu.Items.Add("Settings", null, (_, _) => ShowWindow()); trayMenu.Items.Add("Exit", null, (_, _) => Exit());
@@ -63,6 +72,7 @@ internal sealed class MainForm : Form
         startupMenu.Click += (_, _) => { startup.Checked = startupMenu.Checked; SaveSettings(startup.Checked); };
         minimizeMenu.Click += (_, _) => { minimize.Checked = minimizeMenu.Checked; SaveSettings(startup.Checked); };
         monitor.Status += text => OnUi(() => status.Text = text);
+        monitor.LogEntry += entry => OnUi(() => AppendLog(entry));
         monitor.ConfigurationLoaded += (config, count) => OnUi(() =>
         {
             interval.Value = (decimal)config.IntervalSeconds;
@@ -79,6 +89,19 @@ internal sealed class MainForm : Form
         };
         FormClosing += HandleFormClosing;
         Resize += (_, _) => { if (WindowState == FormWindowState.Minimized && minimizeToTray) Hide(); };
+        if (preview) AppendLog("Preview — per-image match percentages appear here after every scan.");
+    }
+
+    private void AppendLog(string entry)
+    {
+        activityLog.BeginUpdate();
+        try
+        {
+            activityLog.Items.Add(entry);
+            while (activityLog.Items.Count > 100) activityLog.Items.RemoveAt(0);
+            activityLog.TopIndex = activityLog.Items.Count - 1;
+        }
+        finally { activityLog.EndUpdate(); }
     }
 
     private void OnUi(Action action)

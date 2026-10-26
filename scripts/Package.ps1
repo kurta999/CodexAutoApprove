@@ -21,7 +21,7 @@ New-Item -ItemType Directory -Force -Path (Join-Path $packageRoot 'docs') | Out-
 Copy-Item -LiteralPath (Join-Path $projectRoot 'docs\application.png') -Destination (Join-Path $packageRoot 'docs') -Force
 New-Item -ItemType Directory -Force -Path (Join-Path $packageRoot 'assets') | Out-Null
 Copy-Item -LiteralPath (Join-Path $projectRoot 'assets\app.png') -Destination (Join-Path $packageRoot 'assets') -Force
-$required = @('CodexAutoApprove.exe', 'settings.ini', 'images\allow_once.png', 'images\allow_once_2.png', 'README.md', 'docs\application.png', 'assets\app.png')
+$required = @('CodexAutoApprove.exe', 'settings.ini', 'images\allow_once.png', 'images\allow_once_2.png', 'images\allow_once_3.png', 'README.md', 'docs\application.png', 'assets\app.png')
 foreach ($file in $required) {
     if (!(Test-Path -LiteralPath (Join-Path $packageRoot $file))) { throw "Package is missing $file" }
 }

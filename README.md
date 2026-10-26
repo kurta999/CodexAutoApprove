@@ -2,13 +2,13 @@
 
 <img src="assets/app.png" alt="Codex Auto Approve icon" width="72" />
 
-A Windows tray application that monitors **both supplied layouts simultaneously**:
-`images/allow_once.png` and `images/allow_once_2.png`. When either complete reference
+A Windows tray application that monitors **all three supplied layouts simultaneously**:
+`images/allow_once.png`, `images/allow_once_2.png`, and `images/allow_once_3.png`. When any complete reference
 appears on a monitor, it clicks the **Allow once** part of that layout.
 
-![Application settings window](docs/application.png)
+![Application settings and the activity log panel](docs/application.png)
 
-*Settings window in preview mode; monitoring is disabled for this screenshot.*
+*Settings and the activity log (latest 100 entries) in preview mode; monitoring is disabled for this screenshot.*
 
 ## Run
 
@@ -63,13 +63,14 @@ These click offsets are relative to the original reference images:
 | --- | ---: | ---: |
 | allow_once.png | 163 | 23 |
 | allow_once_2.png | 155 | 55 |
+| allow_once_3.png | 130 | 17 |
 
 The click point scales with the detected reference size and remains away from Deny and
 the dropdown arrow. A new screen capture verifies the match immediately before the
-click. A shared cooldown (default 3 seconds) limits repeated clicks across both layouts.
+click. A shared cooldown (default 3 seconds) limits repeated clicks across all layouts.
 Do not move the pointer during a click: the app moves the pointer to the approval button.
 
-`Matching.MinimumScore` defaults to `0.96`; higher values require closer visual matches.
+`Matching.MinimumScore` defaults to `0.90` (90%); higher values require closer visual matches.
 `Matching.Scales` adds scales for other browser zoom/display sizes. The search checks
 image appearance; changed themes or redesigned buttons require new reference images.
 Normal Windows input restrictions apply to elevated windows and the secure desktop.
@@ -85,7 +86,19 @@ ClickY=30
 
 Use tightly cropped reference images containing enough label detail to identify the
 intended action. Adding a PNG activates it on the next configuration refresh. `activity.log`
-records successful clicks and errors, without saving screen captures.
+records per-image scan scores, successful clicks, and errors, without saving screen captures.
+
+The **Activity log** panel keeps the newest **100 entries**, removing the oldest as new
+entries arrive. Each completed scan logs a timestamp, filename, match percentage, 90%
+threshold, and result for every image. Scanning and logging continue during the click
+cooldown. Pausing monitoring stops scans.
+
+For an accepted match, the percentage is its fully verified image similarity. When no
+match passes the click checks, the log shows the full-pixel similarity of the best
+candidate from a faster, coarse diagnostic search. Such entries say **no verified match
+(diagnostic candidate)** and cannot trigger clicks, even if their visual similarity is
+above the threshold. If no configured reference scale fits a screen, the score is **N/A**.
+Diagnostic searches may add time to scans with no accepted matches.
 
 ## Build and verify
 
@@ -98,20 +111,20 @@ dotnet run --project tests/CodexAutoApprove.Tests.csproj -c Release -- C:\GIT_lo
 ```
 
 The test executable uses synthetic frames constructed from the supplied PNGs. It tests
-both layouts, multiple scales, simultaneous visibility, negative monitor origins, click
+all three layouts, multiple scales, simultaneous visibility, negative monitor origins, click
 offsets, unrelated images, and INI round trips. It performs no desktop capture, live
 clicks, or startup registry changes. The UI preview test opens its own window briefly
 with monitoring disabled, then saves `tests/.scratch/ui-preview.png`.
 
 `scripts/Package.ps1` creates a complete portable ZIP and SHA-256 checksum under `publish`.
-It includes the self-contained x64 application, both reference PNGs, settings, and this
+It includes the self-contained x64 application, all three reference PNGs, settings, and this
 README with its images. Use `-FrameworkDependent` for a smaller build on a PC with .NET
 10 Desktop Runtime. The icon can be regenerated with `scripts/Create-Icon.ps1`.
 
 ## GitHub CI/CD
 
 The [build workflow](.github/workflows/build-release.yml) runs on pushes, pull requests,
-and manual dispatches. It builds, tests both layouts and settings, packages the complete
+and manual dispatches. It builds, tests all layouts and settings, packages the complete
 Windows application, and uploads the ZIP/checksum as downloadable workflow artifacts.
 Pushing a `v*` tag also creates a GitHub Release with that package after all checks pass:
 

@@ -37,7 +37,8 @@ public sealed record AppSettings(double IntervalSeconds, bool StartWithWindows, 
         }).Distinct().ToArray();
         var points = new Dictionary<string, Point>(StringComparer.OrdinalIgnoreCase)
         {
-            ["allow_once.png"] = new(163, 23), ["allow_once_2.png"] = new(155, 55)
+            ["allow_once.png"] = new(163, 23), ["allow_once_2.png"] = new(155, 55),
+            ["allow_once_3.png"] = new(130, 17)
         };
         foreach (var (section, values) in ini.Where(p => p.Key.StartsWith("Template:", StringComparison.OrdinalIgnoreCase)))
         {
@@ -46,7 +47,7 @@ public sealed record AppSettings(double IntervalSeconds, bool StartWithWindows, 
             points[section[9..]] = new(x, y);
         }
         return new(Number("General", "CheckIntervalSeconds", 2, .2, 3600), startup, minimizeToTray,
-            Number("Matching", "MinimumScore", .96, .85, 1), Number("Matching", "ClickCooldownSeconds", 3, .5, 3600), scales, points);
+            Number("Matching", "MinimumScore", .90, .85, 1), Number("Matching", "ClickCooldownSeconds", 3, .5, 3600), scales, points);
     }
 
     public static void SaveGeneral(string path, double interval, bool startup, bool? minimizeToTray = null)

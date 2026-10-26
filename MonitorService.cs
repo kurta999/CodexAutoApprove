@@ -13,6 +13,7 @@ internal sealed class MonitorService
     public event Action<string>? Status;
     public event Action<AppSettings, int>? ConfigurationLoaded;
     public event Action<ButtonMatch>? Clicked;
+    public event Action<string>? LogEntry;
 
     public MonitorService(string folder) { this.folder = folder; }
 
@@ -56,7 +57,7 @@ internal sealed class MonitorService
                     if (!paused && settings is not null)
                     {
                         Status?.Invoke($"Monitoring {templates.Count} layouts on {Screen.AllScreens.Length} screen(s)…");
-                        if (DateTime.UtcNow >= nextScan && DateTime.UtcNow - lastClick >= TimeSpan.FromSeconds(settings.CooldownSeconds))
+                        if (DateTime.UtcNow >= nextScan)
                         {
                             ScanAndClick(settings, token);
                             nextScan = DateTime.UtcNow.AddSeconds(settings.IntervalSeconds);
@@ -82,6 +83,7 @@ internal sealed class MonitorService
 
     private void ScanAndClick(AppSettings config, CancellationToken token)
     {
+        var frames = new List<ScreenFrame>();
         foreach (Screen screen in Screen.AllScreens)
         {
             token.ThrowIfCancellationRequested();
@@ -90,37 +92,53 @@ internal sealed class MonitorService
             var pixels = PixelImage.FromBitmap(capture);
             double[] scales = config.Scales.Concat(new[] { screen.Bounds.Height / 1080.0, screen.Bounds.Width / 1920.0 })
                 .Where(s => s >= .25 && s <= 4).Select(s => Math.Round(s, 3)).Distinct().ToArray();
-            foreach (var template in templates)
+            frames.Add(new(pixels, screen.Bounds, scales));
+        }
+        var results = new List<ImageScanResult>();
+        bool cooldown = DateTime.UtcNow - lastClick < TimeSpan.FromSeconds(config.CooldownSeconds);
+        // Finish and log EVERY image before selecting a click, even during cooldown.
+        foreach (var result in ScanAnalyzer.Analyze(frames, templates, config.MinimumScore, token))
+        {
+            results.Add(result);
+            Log(result.Describe(config.MinimumScore, cooldown));
+        }
+        if (paused || DateTime.UtcNow - lastClick < TimeSpan.FromSeconds(config.CooldownSeconds)) return;
+        foreach (var result in results.Where(r => r.Match is not null).OrderByDescending(r => r.Match!.Score))
+        {
+            token.ThrowIfCancellationRequested();
+            if (paused) return;
+            var match = result.Match!;
+            var template = templates.First(t => t.FileName == result.FileName);
+            // Verify against a NEW capture, near the original location, so a vanished prompt is never clicked.
+            Rectangle verificationArea = Rectangle.Inflate(match.Bounds, 5, 5);
+            verificationArea.Intersect(frames.First(f => f.Bounds.Contains(match.Bounds)).Bounds);
+            using var fresh = Desktop.Capture(verificationArea);
+            var verified = TemplateMatcher.Find(PixelImage.FromBitmap(fresh), verificationArea.Location, template,
+                new[] { match.Scale }, config.MinimumScore, token);
+            if (verified is null || !verified.Bounds.Contains(verified.ClickPoint))
             {
-                token.ThrowIfCancellationRequested();
-                if (paused) return;
-                var match = TemplateMatcher.Find(pixels, screen.Bounds.Location, template, scales, config.MinimumScore, token);
-                if (match is null) continue;
-                // Verify against a NEW capture, near the original location, so a vanished prompt is never clicked.
-                Rectangle verificationArea = Rectangle.Inflate(match.Bounds, 5, 5);
-                verificationArea.Intersect(screen.Bounds);
-                using var fresh = Desktop.Capture(verificationArea);
-                var verified = TemplateMatcher.Find(PixelImage.FromBitmap(fresh), verificationArea.Location, template,
-                    new[] { match.Scale }, config.MinimumScore, token);
-                if (verified is null || !verified.Bounds.Contains(verified.ClickPoint)) continue;
-                token.ThrowIfCancellationRequested();
-                if (paused) return;
-                Desktop.Click(verified.ClickPoint);
-                lastClick = DateTime.UtcNow;
-                Log($"Clicked {verified.FileName} at ({verified.ClickPoint.X}, {verified.ClickPoint.Y}), scale {verified.Scale:0.###}, score {verified.Score:P1}");
-                Clicked?.Invoke(verified);
-                return; // One click per scan, shared cooldown across both layouts.
+                Log($"{match.FileName}: fresh verification failed; no click.");
+                continue;
             }
+            token.ThrowIfCancellationRequested();
+            if (paused) return;
+            Desktop.Click(verified.ClickPoint);
+            lastClick = DateTime.UtcNow;
+            Log($"Clicked {verified.FileName} at ({verified.ClickPoint.X}, {verified.ClickPoint.Y}), scale {verified.Scale:0.###}, score {verified.Score:P1}");
+            Clicked?.Invoke(verified);
+            return; // One click per scan, shared cooldown across all layouts.
         }
     }
 
     private void Log(string message)
     {
+        string entry = $"{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss.fff zzz} {message}";
+        LogEntry?.Invoke(entry);
         try
         {
             string path = Path.Combine(folder, "activity.log");
             if (File.Exists(path) && new FileInfo(path).Length > 1_000_000) File.Move(path, path + ".previous", true);
-            File.AppendAllText(path, $"{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss zzz} {message}{Environment.NewLine}");
+            File.AppendAllText(path, entry + Environment.NewLine);
         }
         catch { /* Logging must not stop monitoring. */ }
     }

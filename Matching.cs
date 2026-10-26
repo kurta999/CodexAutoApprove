@@ -162,6 +162,63 @@ public sealed class PreparedTemplate
 
 public static class TemplateMatcher
 {
+    // A coarse diagnostic search gives a useful similarity even when the click matcher
+    // rejects every location. Scores are measured over ALL pixels of a real candidate;
+    // diagnostic candidates never authorize a click.
+    public static double? MeasureCandidate(PixelImage screen, ButtonTemplate template,
+        IEnumerable<double> scales, CancellationToken cancellationToken = default)
+    {
+        double? bestScore = null;
+        foreach (double scale in scales.Distinct())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var prepared = template.AtScale(scale);
+            var reference = prepared.Image;
+            int maxX = screen.Width - reference.Width, maxY = screen.Height - reference.Height;
+            if (maxX < 0 || maxY < 0) continue;
+            var samples = prepared.Samples.Where((_, i) => i % 4 == 0).Concat(prepared.LabelFeatures.Take(8)).Distinct().ToArray();
+            int[] offsets = samples.Select(p => p.Y * screen.Width + p.X).ToArray();
+            int[] values = samples.Select(p => reference.Pixels[p.Y * reference.Width + p.X]).ToArray();
+            int bestError = int.MaxValue;
+            Point candidate = Point.Empty;
+            void Consider(int x, int y)
+            {
+                int start = y * screen.Width + x, error = 0;
+                for (int s = 0; s < offsets.Length; s++)
+                {
+                    error += PreparedTemplate.Difference(screen.Pixels[start + offsets[s]], values[s]);
+                    if (error >= bestError) return;
+                }
+                bestError = error; candidate = new(x, y);
+            }
+            const int step = 8;
+            for (int y = 0; ; y = Math.Min(maxY, y + step))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                for (int x = 0; ; x = Math.Min(maxX, x + step))
+                {
+                    Consider(x, y);
+                    if (x == maxX) break;
+                }
+                if (y == maxY) break;
+            }
+            Point coarse = candidate;
+            for (int y = Math.Max(0, coarse.Y - step + 1); y <= Math.Min(maxY, coarse.Y + step - 1); y++)
+                for (int x = Math.Max(0, coarse.X - step + 1); x <= Math.Min(maxX, coarse.X + step - 1); x++) Consider(x, y);
+            long fullError = 0;
+            for (int y = 0; y < reference.Height; y++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                int start = (candidate.Y + y) * screen.Width + candidate.X;
+                for (int x = 0; x < reference.Width; x++)
+                    fullError += PreparedTemplate.Difference(screen.Pixels[start + x], reference.Pixels[y * reference.Width + x]);
+            }
+            double score = 1 - fullError / (765.0 * reference.Width * reference.Height);
+            if (!bestScore.HasValue || score > bestScore) bestScore = score;
+        }
+        return bestScore;
+    }
+
     public static ButtonMatch? Find(PixelImage screen, Point screenOrigin, ButtonTemplate template,
         IEnumerable<double> scales, double minimumScore, CancellationToken cancellationToken = default)
     {
@@ -174,6 +231,7 @@ public static class TemplateMatcher
             if (maxX < 0 || maxY < 0) continue;
             int[] referenceFeatures = prepared.Features.Select(p => reference.Pixels[p.Y * reference.Width + p.X]).ToArray();
             int[] featureOffsets = prepared.Features.Select(p => p.Y * screen.Width + p.X).ToArray();
+            double featureBudget = featureOffsets.Length * Math.Max(65, (1 - minimumScore) * 765);
             int[] labelValues = prepared.LabelFeatures.Select(p => reference.Pixels[p.Y * reference.Width + p.X]).ToArray();
             int[] labelOffsets = prepared.LabelFeatures.Select(p => p.Y * screen.Width + p.X).ToArray();
             int[] referenceSamples = prepared.Samples.Select(p => reference.Pixels[p.Y * reference.Width + p.X]).ToArray();
@@ -191,7 +249,7 @@ public static class TemplateMatcher
                     for (int f = 0; f < featureOffsets.Length; f++)
                     {
                         featureError += PreparedTemplate.Difference(screen.Pixels[start + featureOffsets[f]], referenceFeatures[f]);
-                        if (featureError > featureOffsets.Length * 65) { rejected = true; break; }
+                        if (featureError > featureBudget) { rejected = true; break; }
                     }
                     if (rejected) continue;
                     int labelError = 0;
