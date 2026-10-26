@@ -1,5 +1,9 @@
 # Codex Auto Approve
 
+**Remote sessions:** When Codex is started or restarted remotely, for example from a
+phone, it keeps asking for permission. In this situation, the **Always approve** button
+does not work.
+
 <img src="assets/app.png" alt="Codex Auto Approve icon" width="72" />
 
 A Windows tray application that monitors **all three supplied layouts simultaneously**:
