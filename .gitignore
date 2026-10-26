@@ -1,0 +1,11 @@
+bin/
+obj/
+publish/
+artifacts/
+tests/bin/
+tests/obj/
+*.user
+*.log
+*.log.previous
+.dotnet-home/
+tests/.scratch/
